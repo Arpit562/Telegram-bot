@@ -7,9 +7,9 @@ from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, Callb
 # --- CONFIGURATION ---
 TOKEN = '9125070567:AAFi3Cdir_RqQSxzr_uPsjlO22L1tWCnqNE'
 ADMIN_TELEGRAM_ID = 8904576835      # Admin ki numeric Telegram ID
-CLIENT_UPI_ID = "8619864666@axi"
+CLIENT_UPI_ID = "abhijeetvaish1@ybl"
 CLIENT_NAME = "Your arpit"
-QR_CODE_PATH = "QR_code/QR.jpeg"
+QR_CODE_PATH = "QR_code/QR2.jpeg"
 DB_PATH = "bot_users.db"
 
 # --- DATABASE CONNECTION & SETUP ---
