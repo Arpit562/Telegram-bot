@@ -5,8 +5,16 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, CallbackQueryHandler, MessageHandler, filters
 
 # --- CONFIGURATION ---
-TOKEN = os.environ.get("9125070567:AAFOkFjUal-p43vQvtaVR-KHnNWJM3VO6gY")
-ADMIN_TELEGRAM_ID = 8904576835      # Admin ki numeric Telegram ID
+# --- CONFIGURATION ---
+TOKEN = os.getenv("BOT_TOKEN", "").strip()
+
+if not TOKEN:
+    raise RuntimeError(
+        "BOT_TOKEN environment variable is missing! "
+        "Please configure it in Render."
+    )
+
+ADMIN_TELEGRAM_ID = 8904576835
 CLIENT_UPI_ID = "abhijeetvaish1@ybl"
 CLIENT_NAME = "abhijeet's records"
 QR_CODE_PATH = "QR_code/QR2.jpeg"
@@ -153,14 +161,23 @@ async def approve_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"Database update ho gaya, par user ko message nahi gaya: {e}")
 
 # --- MAIN FUNCTION ---
+# --- MAIN FUNCTION ---
 if __name__ == "__main__":
+
     app = ApplicationBuilder().token(TOKEN).build()
 
     # Handlers
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("approve", approve_user))
     app.add_handler(CallbackQueryHandler(button_handler))
-    app.add_handler(MessageHandler(filters.PHOTO | (filters.TEXT & ~filters.COMMAND), handle_payment_proof))
+
+    app.add_handler(
+        MessageHandler(
+            filters.PHOTO | (filters.TEXT & ~filters.COMMAND),
+            handle_payment_proof
+        )
+    )
 
     print("Bot backend successfully started bhai!")
+
     app.run_polling()
