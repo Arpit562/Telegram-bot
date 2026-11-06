@@ -1,8 +1,10 @@
+import os
 import sqlite3
 from datetime import datetime, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, CallbackQueryHandler, MessageHandler, filters
-
+from flask import Flask
+from threading import Thread
 
 # --- CONFIGURATION ---
 TOKEN = '9125070567:AAFi3Cdir_RqQSxzr_uPsjlO22L1tWCnqNE'
@@ -11,6 +13,22 @@ CLIENT_UPI_ID = "abhijeetvaish1@ybl"
 CLIENT_NAME = "abhijeet's records"
 QR_CODE_PATH = "QR_code/QR2.jpeg"
 DB_PATH = "bot_users.db"
+
+# --- RENDER WEB SERVICE PORT BINDING (DUMMY SERVER) ---
+app_web = Flask('')
+
+@app_web.route('/')
+def home():
+    return "Telegram Bot is alive and running!"
+
+def run_flask():
+    port = int(os.environ.get("PORT", 10000))
+    app_web.run(host='0.0.0.0', port=port)
+
+def keep_alive():
+    t = Thread(target=run_flask)
+    t.start()
+
 
 # --- DATABASE CONNECTION & SETUP ---
 def init_db():
@@ -90,7 +108,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_payment_proof(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
 
-    # Agar admin khud kuch type karega, toh usko payment proof mat mano
     if user.id == ADMIN_TELEGRAM_ID:
         return
 
@@ -103,7 +120,6 @@ async def handle_payment_proof(update: Update, context: ContextTypes.DEFAULT_TYP
         f"/approve {user.id}"
     )
 
-    # Send notification and proof to Admin
     await context.bot.send_message(chat_id=ADMIN_TELEGRAM_ID, text=forward_caption, parse_mode="Markdown")
     
     if update.message.photo:
@@ -134,9 +150,6 @@ async def approve_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     expiry_date = datetime.now() + timedelta(days=30)
     expiry_str = expiry_date.strftime("%Y-%m-%d")
 
-    
-
-    # Database me save karo
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute('''
@@ -146,7 +159,6 @@ async def approve_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn.commit()
     conn.close()
 
-    # User ko message bhejo
     try:
         await context.bot.send_message(
             chat_id=target_user_id,
@@ -156,22 +168,20 @@ async def approve_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         await update.message.reply_text(f"Success! User {target_user_id} ka subscription activate ho gaya hai.")
     except Exception as e:
-        await update.message.reply_text(f"Database update ho gaya, par user ko message nahi gaya. (Ho sakta hai user ne bot ko start na kiya ho): {e}")
+        await update.message.reply_text(f"Database update ho gaya, par user ko message nahi gaya: {e}")
 
-        print("Admin ID:", admin_id)
-        print("Target User ID:", target_user_id)
 # --- MAIN FUNCTION ---
 if __name__ == "__main__":
+    # Start Keep-Alive Flask Server for Render Web Service Port Binding
+    keep_alive()
+
     app = ApplicationBuilder().token(TOKEN).build()
 
-    # Handlers (Commands sabse upar)
+    # Handlers
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("approve", approve_user))
     app.add_handler(CallbackQueryHandler(button_handler))
-    
-    # Message Handler (Strictly ignoring commands and admin's own chats)
     app.add_handler(MessageHandler(filters.PHOTO | (filters.TEXT & ~filters.COMMAND), handle_payment_proof))
 
     print("Bot backend successfully started bhai!")
     app.run_polling()
-
