@@ -1,10 +1,11 @@
+import os
 import sqlite3
 from datetime import datetime, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, CallbackQueryHandler, MessageHandler, filters
 
 # --- CONFIGURATION ---
-TOKEN = '9125070567:AAFi3Cdir_RqQSxzr_uPsjlO22L1tWCnqNE'
+TOKEN = os.environ.get('9125070567:AAFi3Cdir_RqQSxzr_uPsjlO22L1tWCnqNE')
 ADMIN_TELEGRAM_ID = 8904576835      # Admin ki numeric Telegram ID
 CLIENT_UPI_ID = "abhijeetvaish1@ybl"
 CLIENT_NAME = "abhijeet's records"
