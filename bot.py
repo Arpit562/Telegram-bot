@@ -1,10 +1,7 @@
-import os
 import sqlite3
 from datetime import datetime, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, CallbackQueryHandler, MessageHandler, filters
-from flask import Flask
-from threading import Thread
 
 # --- CONFIGURATION ---
 TOKEN = '9125070567:AAFi3Cdir_RqQSxzr_uPsjlO22L1tWCnqNE'
@@ -13,22 +10,6 @@ CLIENT_UPI_ID = "abhijeetvaish1@ybl"
 CLIENT_NAME = "abhijeet's records"
 QR_CODE_PATH = "QR_code/QR2.jpeg"
 DB_PATH = "bot_users.db"
-
-# --- RENDER WEB SERVICE PORT BINDING (DUMMY SERVER) ---
-app_web = Flask('')
-
-@app_web.route('/')
-def home():
-    return "Telegram Bot is alive and running!"
-
-def run_flask():
-    port = int(os.environ.get("PORT", 10000))
-    app_web.run(host='0.0.0.0', port=port)
-
-def keep_alive():
-    t = Thread(target=run_flask)
-    t.start()
-
 
 # --- DATABASE CONNECTION & SETUP ---
 def init_db():
@@ -172,9 +153,6 @@ async def approve_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # --- MAIN FUNCTION ---
 if __name__ == "__main__":
-    # Start Keep-Alive Flask Server for Render Web Service Port Binding
-    keep_alive()
-
     app = ApplicationBuilder().token(TOKEN).build()
 
     # Handlers
