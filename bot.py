@@ -30,7 +30,7 @@ from telegram.ext import (
 # =========================================================
 
 TOKEN = os.getenv("BOT_TOKEN", "").strip()
-ADMIN_TELEGRAM_ID = int(os.getenv("ADMIN_TELEGRAM_ID", "0"))
+ADMIN_TELEGRAM_ID = int(os.getenv("ADMIN_TELEGRAM_ID", "6807427898"))
 DB_PATH = os.getenv("DB_PATH", "bot_users.db")
 
 # Comma-separated Telegram channel IDs, e.g.:
@@ -285,14 +285,7 @@ async def plan_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
-        await query.answer(
-            ok=False,
-            error_message="This invoice is invalid or has expired. Please create a new one.",
-        )
         return
-
-    await query.answer(ok=True)
-
 
 async def precheckout_handler(
     update: Update,
@@ -708,3 +701,6 @@ def main():
         drop_pending_updates=False,
     )
 
+
+if __name__ == "__main__":
+    main()
