@@ -5,12 +5,12 @@ import sqlite3
 import logging
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 from telegram import (
     Update,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
-    LabeledPrice,
 )
 from telegram.ext import (
     ApplicationBuilder,
@@ -18,7 +18,6 @@ from telegram.ext import (
     ContextTypes,
     CallbackQueryHandler,
     MessageHandler,
-    PreCheckoutQueryHandler,
     filters,
 )
 
@@ -41,10 +40,12 @@ CHANNEL_IDS = [
     if item.strip()
 ]
 
-# Telegram Stars prices must be configured by the bot owner.
-# These are Stars (XTR), NOT INR.
-PRICE_30_DAYS_XTR = int(os.getenv("PRICE_30_DAYS_XTR", "0"))
-PRICE_60_DAYS_XTR = int(os.getenv("PRICE_60_DAYS_XTR", "0"))
+UPI_ID = os.getenv("UPI_ID", "abhijeetvaish1@ybl").strip()
+QR_IMAGE_PATH = Path(__file__).resolve().parent / "QR_code" / "QR2.jpeg"
+PLAN_PRICES_INR = {
+    30: 499,
+    60: 899,
+}
 
 PORT = int(os.getenv("PORT", "10000"))
 WEBHOOK_PATH = os.getenv("WEBHOOK_PATH", "telegram-webhook").strip("/")
@@ -70,11 +71,6 @@ def validate_config():
         raise RuntimeError(
             "Set CHANNEL_IDS with at least one private channel ID."
         )
-    if PRICE_30_DAYS_XTR <= 0 or PRICE_60_DAYS_XTR <= 0:
-        raise RuntimeError(
-            "Set PRICE_30_DAYS_XTR and PRICE_60_DAYS_XTR to positive "
-            "Telegram Stars amounts. These values are XTR, not INR."
-        )
     if not EXTERNAL_URL.startswith("https://"):
         raise RuntimeError("A valid HTTPS RENDER_EXTERNAL_URL or WEBHOOK_URL is required.")
     if not WEBHOOK_SECRET_TOKEN:
@@ -83,6 +79,10 @@ def validate_config():
         raise RuntimeError("WEBHOOK_SECRET_TOKEN has an invalid format.")
     if not WEBHOOK_PATH:
         raise RuntimeError("WEBHOOK_PATH cannot be empty.")
+    if not re.fullmatch(r"[A-Za-z0-9._-]+@[A-Za-z0-9.-]+", UPI_ID):
+        raise RuntimeError("UPI_ID has an invalid format.")
+    if not QR_IMAGE_PATH.is_file():
+        raise RuntimeError(f"UPI QR image was not found: {QR_IMAGE_PATH}")
 
 
 @contextmanager
@@ -132,16 +132,26 @@ def init_db():
                 user_id INTEGER NOT NULL,
                 plan_days INTEGER NOT NULL CHECK(plan_days IN (30, 60)),
                 amount_xtr INTEGER NOT NULL,
-                currency TEXT NOT NULL DEFAULT 'XTR',
+                currency TEXT NOT NULL DEFAULT 'INR',
                 invoice_payload TEXT NOT NULL UNIQUE,
                 telegram_payment_charge_id TEXT UNIQUE,
                 status TEXT NOT NULL,
                 created_at TEXT NOT NULL,
                 paid_at TEXT,
                 reviewed_at TEXT,
-                reviewed_by INTEGER
+                reviewed_by INTEGER,
+                amount_inr INTEGER,
+                proof_file_id TEXT
             )
         """)
+
+        payment_columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(payments)")
+        }
+        if "amount_inr" not in payment_columns:
+            conn.execute("ALTER TABLE payments ADD COLUMN amount_inr INTEGER")
+        if "proof_file_id" not in payment_columns:
+            conn.execute("ALTER TABLE payments ADD COLUMN proof_file_id TEXT")
 
         conn.execute("""
             CREATE TABLE IF NOT EXISTS subscriptions (
@@ -233,133 +243,82 @@ async def plan_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.reply_text("Invalid plan.")
         return
 
-    prices = {
-        30: PRICE_30_DAYS_XTR,
-        60: PRICE_60_DAYS_XTR,
-    }
-    if days not in prices:
+    if days not in PLAN_PRICES_INR:
         await query.message.reply_text("This plan is not available.")
         return
 
-    amount = prices[days]
+    amount = PLAN_PRICES_INR[days]
     payment_id = str(uuid.uuid4())
-    payload = f"subscription:{query.from_user.id}:{days}:{payment_id}"
+    payment_ref = f"upi:{payment_id}"
 
     with db_connect() as conn:
         conn.execute(
             """
             INSERT INTO payments (
                 payment_id, user_id, plan_days, amount_xtr, currency,
-                invoice_payload, status, created_at
-            ) VALUES (?, ?, ?, ?, 'XTR', ?, 'invoice_created', ?)
+                invoice_payload, status, created_at, amount_inr
+            ) VALUES (?, ?, ?, ?, 'INR', ?, 'awaiting_proof', ?, ?)
             """,
             (
                 payment_id,
                 query.from_user.id,
                 days,
                 amount,
-                payload,
+                payment_ref,
                 to_iso(utc_now()),
+                amount,
             ),
         )
 
-    try:
-        await context.bot.send_invoice(
-            chat_id=query.message.chat_id,
-            title=f"{days}-Day Channel Subscription",
-            description=f"Access to all configured private channels for {days} days.",
-            payload=payload,
-            provider_token="",
-            currency="XTR",
-            prices=[LabeledPrice(label=f"{days} days", amount=amount)],
-        )
-    except Exception:
-        logger.exception("Could not send Stars invoice.")
-        with db_connect() as conn:
-            conn.execute(
-                "UPDATE payments SET status = 'invoice_error' WHERE payment_id = ?",
-                (payment_id,),
-            )
-        await query.message.reply_text(
-            "The payment invoice could not be created. Please try again later."
-        )
+    caption = (
+        f"Payment for {days}-day subscription: ₹{amount}\n\n"
+        "Scan this PhonePe QR to pay. If the QR does not work, pay to this UPI ID:\n"
+        f"{UPI_ID}\n\n"
+        "After paying, send your payment screenshot here. "
+        "Access will be activated after admin verifies the payment."
+    )
+    with QR_IMAGE_PATH.open("rb") as qr_image:
+        await query.message.reply_photo(photo=qr_image, caption=caption)
 
 
-        return
-
-async def precheckout_handler(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-):
-    query = update.pre_checkout_query
-    if not query.invoice_payload.startswith("subscription:"):
-        await query.answer(ok=False, error_message="This invoice is invalid.")
-        return
-
-    with db_connect() as conn:
-        payment = conn.execute(
-            "SELECT * FROM payments WHERE invoice_payload = ? AND status = 'invoice_created'",
-            (query.invoice_payload,),
-        ).fetchone()
-
-    if payment is None:
-        await query.answer(
-            ok=False,
-            error_message="This invoice is invalid or has expired. Please create a new one.",
-        )
-        return
-
-    if query.total_amount != payment["amount_xtr"]:
-        await query.answer(ok=False, error_message="Payment amount mismatch.")
-        return
-
-    await query.answer(ok=True)
-
-
-async def successful_payment_handler(
+async def payment_proof_handler(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
 ):
     user = update.effective_user
-    successful = update.message.successful_payment
+    message = update.message
+    proof_file_id = message.photo[-1].file_id
 
     with db_connect() as conn:
         payment = conn.execute(
-            "SELECT * FROM payments WHERE invoice_payload = ?",
-            (successful.invoice_payload,),
+            """
+            SELECT * FROM payments
+            WHERE user_id = ? AND status = 'awaiting_proof'
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            (user.id,),
         ).fetchone()
 
-        if payment is None or payment["user_id"] != user.id:
-            logger.error("Unmatched successful payment from user %s", user.id)
-            await update.message.reply_text(
-                "Payment received, but we could not match the order. Please contact the admin."
+        if payment is None:
+            await message.reply_text(
+                "Pehle /start se plan choose karo, payment karo, phir screenshot bhejo."
             )
             return
 
-        if (
-            successful.currency != "XTR"
-            or successful.total_amount != payment["amount_xtr"]
-        ):
-            logger.error("Payment amount/currency mismatch for %s", payment["payment_id"])
-            await update.message.reply_text(
-                "Payment details need manual investigation. Please contact the admin."
-            )
-            return
-
-        conn.execute(
+        updated = conn.execute(
             """
             UPDATE payments
-            SET status = 'pending_admin',
-                telegram_payment_charge_id = ?,
-                paid_at = ?
-            WHERE payment_id = ? AND status = 'invoice_created'
+            SET status = 'pending_admin', proof_file_id = ?, paid_at = ?
+            WHERE payment_id = ? AND status = 'awaiting_proof'
             """,
-            (
-                successful.telegram_payment_charge_id,
-                to_iso(utc_now()),
-                payment["payment_id"],
-            ),
-        )
+            (proof_file_id, to_iso(utc_now()), payment["payment_id"]),
+        ).rowcount
+        if not updated:
+            await message.reply_text(
+                "Is payment ka screenshot pehle hi submit ho chuka hai."
+            )
+            return
 
     keyboard = InlineKeyboardMarkup([[
         InlineKeyboardButton(
@@ -367,28 +326,46 @@ async def successful_payment_handler(
             callback_data=f"approve:{payment['payment_id']}",
         ),
         InlineKeyboardButton(
-            "Reject + Refund",
+            "Reject",
             callback_data=f"reject:{payment['payment_id']}",
         ),
     ]])
 
     admin_text = (
-        "New paid subscription awaiting review\n\n"
+        "UPI payment proof awaiting review\n\n"
         f"User ID: {user.id}\n"
         f"Name: {user.full_name}\n"
         f"Username: @{user.username or 'None'}\n"
         f"Plan: {payment['plan_days']} days\n"
-        f"Amount: {successful.total_amount} XTR\n"
+        f"Amount: ₹{payment['amount_inr']}\n"
         f"Payment ID: {payment['payment_id']}"
     )
 
-    await context.bot.send_message(
-        chat_id=ADMIN_TELEGRAM_ID,
-        text=admin_text,
-        reply_markup=keyboard,
-    )
-    await update.message.reply_text(
-        "Your payment was received successfully. Your subscription is awaiting admin approval."
+    try:
+        await context.bot.send_photo(
+            chat_id=ADMIN_TELEGRAM_ID,
+            photo=proof_file_id,
+            caption=admin_text,
+            reply_markup=keyboard,
+        )
+    except Exception:
+        logger.exception("Could not forward payment proof %s to admin", payment["payment_id"])
+        with db_connect() as conn:
+            conn.execute(
+                """
+                UPDATE payments
+                SET status = 'awaiting_proof', proof_file_id = NULL, paid_at = NULL
+                WHERE payment_id = ? AND status = 'pending_admin'
+                """,
+                (payment["payment_id"],),
+            )
+        await message.reply_text(
+            "Screenshot admin tak nahi pahunch saka. Thodi der baad screenshot dobara bhejo."
+        )
+        return
+
+    await message.reply_text(
+        "Payment screenshot admin ko bhej diya hai. Verification ke baad subscription activate hoga."
     )
 
 
@@ -397,6 +374,9 @@ async def admin_payment_callback(
     context: ContextTypes.DEFAULT_TYPE,
 ):
     query = update.callback_query
+    if query.from_user.id != ADMIN_TELEGRAM_ID:
+        await query.answer("Only the admin can review payments.", show_alert=True)
+        return
     await query.answer()
 
     if not query.data or ":" not in query.data:
@@ -413,12 +393,12 @@ async def admin_payment_callback(
         ).fetchone()
 
     if payment is None:
-        await query.edit_message_text("This payment was not found.")
+        await query.edit_message_caption(caption="This payment was not found.")
         return
 
     if payment["status"] != "pending_admin":
-        await query.edit_message_text(
-            "This payment is no longer pending admin review."
+        await query.edit_message_caption(
+            caption="This payment is no longer pending admin review."
         )
         return
 
@@ -427,14 +407,19 @@ async def admin_payment_callback(
         invite_messages = []
 
         with db_connect() as conn:
-            conn.execute(
+            updated = conn.execute(
                 """
                 UPDATE payments
                 SET status = 'approved', reviewed_at = ?, reviewed_by = ?
                 WHERE payment_id = ? AND status = 'pending_admin'
                 """,
                 (to_iso(utc_now()), query.from_user.id, payment_id),
-            )
+            ).rowcount
+            if not updated:
+                await query.edit_message_caption(
+                    caption="This payment was already reviewed."
+                )
+                return
             conn.execute(
                 """
                 INSERT INTO subscriptions (
@@ -532,45 +517,34 @@ async def admin_payment_callback(
         )
 
     elif action == "reject":
-        charge_id = payment["telegram_payment_charge_id"]
-        if not charge_id:
-            await query.edit_message_text(
-                "Cannot refund: Telegram payment charge ID is missing."
-            )
-            return
-
-        try:
-            await context.bot.refund_star_payment(
-                user_id=payment["user_id"],
-                telegram_payment_charge_id=charge_id,
-            )
-        except Exception:
-            logger.exception("Stars refund failed for payment %s", payment_id)
-            await query.edit_message_text(
-                "Refund failed. Payment remains pending for manual investigation."
-            )
-            return
-
         with db_connect() as conn:
-            conn.execute(
+            updated = conn.execute(
                 """
                 UPDATE payments
-                SET status = 'rejected_refunded', reviewed_at = ?, reviewed_by = ?
+                SET status = 'rejected', reviewed_at = ?, reviewed_by = ?
                 WHERE payment_id = ? AND status = 'pending_admin'
                 """,
                 (to_iso(utc_now()), query.from_user.id, payment_id),
+            ).rowcount
+        if not updated:
+            await query.edit_message_caption(
+                caption="This payment was already reviewed."
             )
+            return
 
         try:
             await context.bot.send_message(
                 chat_id=payment["user_id"],
-                text="Your subscription request was rejected. The Stars payment has been refunded.",
+                text=(
+                    "Your payment proof was rejected. Please contact the admin "
+                    "if you believe this is a mistake."
+                ),
             )
         except Exception:
             logger.exception("Could not notify rejected user.")
 
-        await query.edit_message_text(
-            f"Rejected and refunded.\nUser: {payment['user_id']}"
+        await query.edit_message_caption(
+            caption=f"Payment rejected.\nUser: {payment['user_id']}"
         )
 
 
@@ -661,8 +635,7 @@ def main():
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("cancel", cancel))
-    app.add_handler(PreCheckoutQueryHandler(precheckout_handler))
-    app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_payment_handler))
+    app.add_handler(MessageHandler(filters.PHOTO, payment_proof_handler))
     app.add_handler(
         CallbackQueryHandler(
             admin_payment_callback,
