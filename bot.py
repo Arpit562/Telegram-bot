@@ -141,7 +141,8 @@ def init_db():
                 reviewed_at TEXT,
                 reviewed_by INTEGER,
                 amount_inr INTEGER,
-                proof_file_id TEXT
+                proof_file_id TEXT,
+                username TEXT
             )
         """)
 
@@ -152,6 +153,8 @@ def init_db():
             conn.execute("ALTER TABLE payments ADD COLUMN amount_inr INTEGER")
         if "proof_file_id" not in payment_columns:
             conn.execute("ALTER TABLE payments ADD COLUMN proof_file_id TEXT")
+        if "username" not in payment_columns:
+            conn.execute("ALTER TABLE payments ADD COLUMN username TEXT")
 
         conn.execute("""
             CREATE TABLE IF NOT EXISTS subscriptions (
@@ -256,8 +259,8 @@ async def plan_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             """
             INSERT INTO payments (
                 payment_id, user_id, plan_days, amount_xtr, currency,
-                invoice_payload, status, created_at, amount_inr
-            ) VALUES (?, ?, ?, ?, 'INR', ?, 'awaiting_proof', ?, ?)
+                invoice_payload, status, created_at, amount_inr, username
+            ) VALUES (?, ?, ?, ?, 'INR', ?, 'awaiting_proof', ?, ?, ?)
             """,
             (
                 payment_id,
@@ -267,6 +270,7 @@ async def plan_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 payment_ref,
                 to_iso(utc_now()),
                 amount,
+                query.from_user.username,
             ),
         )
 
@@ -441,8 +445,19 @@ async def admin_payment_callback(
                 ),
             )
             conn.execute(
-                "UPDATE users SET status = 'active', expiry_date = ? WHERE user_id = ?",
-                (to_iso(expires_at), payment["user_id"]),
+                """
+                INSERT INTO users (user_id, username, expiry_date, status)
+                VALUES (?, ?, ?, 'active')
+                ON CONFLICT(user_id) DO UPDATE SET
+                    username = COALESCE(excluded.username, users.username),
+                    expiry_date = excluded.expiry_date,
+                    status = 'active'
+                """,
+                (
+                    payment["user_id"],
+                    payment["username"],
+                    to_iso(expires_at),
+                ),
             )
 
         with db_connect() as conn:
