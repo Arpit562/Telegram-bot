@@ -25,7 +25,9 @@ service with `python bot.py`.
 database if the hosting platform's local filesystem is ephemeral. The
 deployed database is separate from the `bot_users.db` file on your computer;
 set `DB_PATH` to a file on the hosting platform's persistent disk. Approved
-subscriptions are stored in both the `subscriptions` table and the legacy
-`users` table. The QR image must be deployed at `QR_code/QR2.jpeg`; 30-day and
-60-day plans cost ₹499 and ₹899 respectively. Admins must verify UPI payments
-manually before approving subscriptions.
+subscriptions are stored in the `subscriptions` table and mirrored in the
+legacy `users` table; the selected duration is available as `plan_days` in
+both. Existing `users` tables are migrated automatically when the bot starts.
+The QR image must be deployed at `QR_code/QR2.jpeg`; 30-day and 60-day plans
+cost ₹499 and ₹899 respectively. Admins must verify UPI payments manually
+before approving subscriptions.

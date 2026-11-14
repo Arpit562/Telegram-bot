@@ -36,7 +36,7 @@ DB_PATH = os.getenv("DB_PATH", "bot_users.db")
 # CHANNEL_IDS=-1001234567890,-1009876543210
 CHANNEL_IDS = [
     item.strip()
-    for item in os.getenv("CHANNEL_IDS", "").split(",")
+    for item in os.getenv("-1003911622211", "").split(",")
     if item.strip()
 ]
 
@@ -122,9 +122,16 @@ def init_db():
                 user_id INTEGER PRIMARY KEY,
                 username TEXT,
                 expiry_date TEXT,
-                status TEXT
+                status TEXT,
+                plan_days INTEGER
             )
         """)
+
+        user_columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(users)")
+        }
+        if "plan_days" not in user_columns:
+            conn.execute("ALTER TABLE users ADD COLUMN plan_days INTEGER")
 
         conn.execute("""
             CREATE TABLE IF NOT EXISTS payments (
@@ -165,6 +172,21 @@ def init_db():
                 expires_at TEXT NOT NULL,
                 last_payment_id TEXT NOT NULL
             )
+        """)
+
+        conn.execute("""
+            UPDATE users
+            SET plan_days = (
+                SELECT plan_days
+                FROM subscriptions
+                WHERE subscriptions.user_id = users.user_id
+            )
+            WHERE plan_days IS NULL
+              AND EXISTS (
+                  SELECT 1
+                  FROM subscriptions
+                  WHERE subscriptions.user_id = users.user_id
+              )
         """)
 
         conn.execute("""
@@ -446,17 +468,20 @@ async def admin_payment_callback(
             )
             conn.execute(
                 """
-                INSERT INTO users (user_id, username, expiry_date, status)
-                VALUES (?, ?, ?, 'active')
+                INSERT INTO users (
+                    user_id, username, expiry_date, status, plan_days
+                ) VALUES (?, ?, ?, 'active', ?)
                 ON CONFLICT(user_id) DO UPDATE SET
                     username = COALESCE(excluded.username, users.username),
                     expiry_date = excluded.expiry_date,
-                    status = 'active'
+                    status = 'active',
+                    plan_days = excluded.plan_days
                 """,
                 (
                     payment["user_id"],
                     payment["username"],
                     to_iso(expires_at),
+                    payment["plan_days"],
                 ),
             )
 
@@ -466,7 +491,7 @@ async def admin_payment_callback(
             ).fetchall()
 
         for channel in channels:
-            channel_id = channel["channel_id"]
+            channel_id = channel["-1003911622211"]
             try:
                 try:
                     await context.bot.ban_chat_member(
