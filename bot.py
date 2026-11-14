@@ -529,8 +529,10 @@ async def admin_payment_callback(
                         """,
                         (payment["user_id"], channel_id, to_iso(utc_now())),
                     )
-            except Exception:
+            except Exception as e:
+                # Yeh line terminal me exact error dikha degi bhai
                 logger.exception("Could not create invite for channel %s", channel_id)
+                print(f"--> ASLI PYTHON ERROR: {e}") 
                 invite_failures.append(channel_id)
 
         user_text = (
