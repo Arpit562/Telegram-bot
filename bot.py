@@ -730,7 +730,8 @@ def main():
         .token(TOKEN)
         .build()
     )
-
+    
+    app.add_handler(CommandHandler("checkdb", check_db_users))
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("cancel", cancel))
     app.add_handler(CommandHandler("checkusers", check_db_users))
