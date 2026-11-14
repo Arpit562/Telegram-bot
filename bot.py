@@ -431,6 +431,7 @@ async def admin_payment_callback(
     if action == "approve":
         expires_at = utc_now() + timedelta(days=payment["plan_days"])
         invite_messages = []
+        invite_failures = []
 
         with db_connect() as conn:
             updated = conn.execute(
@@ -506,12 +507,16 @@ async def admin_payment_callback(
                 except Exception:
                     logger.info("User was not banned in channel %s", channel_id)
 
-                invite = await context.bot.create_chat_invite_link(
-                    chat_id=channel_id,
-                    member_limit=1,
-                    expire_date=utc_now() + timedelta(hours=24),
-                )
-                invite_messages.append(invite.invite_link)
+                chat = await context.bot.get_chat(channel_id)
+                if chat.username:
+                    invite_messages.append(f"https://t.me/{chat.username}")
+                else:
+                    invite = await context.bot.create_chat_invite_link(
+                        chat_id=channel_id,
+                        member_limit=1,
+                        expire_date=utc_now() + timedelta(hours=24),
+                    )
+                    invite_messages.append(invite.invite_link)
 
                 with db_connect() as conn:
                     conn.execute(
@@ -526,6 +531,7 @@ async def admin_payment_callback(
                     )
             except Exception:
                 logger.exception("Could not create invite for channel %s", channel_id)
+                invite_failures.append(channel_id)
 
         user_text = (
             "Payment approved! Your subscription is active.\n"
@@ -565,6 +571,11 @@ async def admin_payment_callback(
             f"Plan: {payment['plan_days']} days\n"
             f"Expiry: {expires_at:%d %b %Y, %H:%M UTC}\n"
             f"Channel links generated: {len(invite_messages)}"
+            + (
+                f"\nCould not generate links for: {', '.join(invite_failures)}. "
+                "For private channels, make the bot an admin with invite-link permission."
+                if invite_failures else ""
+            )
         )
 
     elif action == "reject":

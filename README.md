@@ -31,3 +31,7 @@ both. Existing `users` tables are migrated automatically when the bot starts.
 The QR image must be deployed at `QR_code/QR2.jpeg`; 30-day and 60-day plans
 cost ₹499 and ₹899 respectively. Admins must verify UPI payments manually
 before approving subscriptions.
+
+After approval, public channels are sent as their `t.me` links. For private
+channels, the bot creates a 24-hour, one-member invite link and must be an
+administrator with permission to invite users.
