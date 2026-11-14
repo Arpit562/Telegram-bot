@@ -529,6 +529,7 @@ async def admin_payment_callback(
                         """,
                         (payment["user_id"], channel_id, to_iso(utc_now())),
                     )
+                    print(f"--> NEW PAYMENT DATA: User={payment['user_id']}, Days={payment['plan_days']}, Amount={payment['amount_inr']}")
             except Exception as e:
                 # Yeh line terminal me exact error dikha degi bhai
                 logger.exception("Could not create invite for channel %s", channel_id)
