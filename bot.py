@@ -36,7 +36,7 @@ DB_PATH = os.getenv("DB_PATH", "bot_users.db")
 # CHANNEL_IDS=-1001234567890,-1009876543210
 CHANNEL_IDS = [
     item.strip()
-    for item in os.getenv("CHANNEL_IDS", "").split(",")
+    for item in os.getenv("CHANNEL_IDS", "-1003911622211").split(",")
     if item.strip()
 ]
 
