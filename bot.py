@@ -36,7 +36,7 @@ DB_PATH = os.getenv("DB_PATH", "bot_users.db")
 # CHANNEL_IDS=-1001234567890,-1009876543210
 CHANNEL_IDS = [
     item.strip()
-    for item in os.getenv("-1003911622211", "").split(",")
+    for item in os.getenv("CHANNEL_IDS", "").split(",")
     if item.strip()
 ]
 
@@ -491,7 +491,7 @@ async def admin_payment_callback(
             ).fetchall()
 
         for channel in channels:
-            channel_id = channel["-1003911622211"]
+            channel_id = channel["channel_id"]
             try:
                 try:
                     await context.bot.ban_chat_member(
