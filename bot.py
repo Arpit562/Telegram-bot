@@ -549,6 +549,17 @@ async def admin_payment_callback(
         except Exception:
             logger.exception("Could not notify approved user %s", payment["user_id"])
 
+        try:
+            await context.bot.send_message(
+                chat_id=ADMIN_TELEGRAM_ID,
+                text=f"You approved {payment['user_id']}",
+            )
+        except Exception:
+            logger.exception(
+                "Could not notify admin about approval for user %s",
+                payment["user_id"],
+            )
+
         await query.edit_message_text(
             f"Approved.\nUser: {payment['user_id']}\n"
             f"Plan: {payment['plan_days']} days\n"
