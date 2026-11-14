@@ -688,6 +688,39 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+async def check_db_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    message = update.effective_message
+    if user is None or user.id != ADMIN_TELEGRAM_ID or message is None:
+        return
+
+    with db_connect() as conn:
+        users = conn.execute(
+            "SELECT user_id, status, expiry_date FROM users ORDER BY user_id"
+        ).fetchall()
+
+    if not users:
+        await message.reply_text("Database me abhi koi user nahi hai!")
+        return
+
+    lines = [
+        f"ID: {user['user_id']} | Status: {user['status']} | Expiry: {user['expiry_date']}"
+        for user in users
+    ]
+    chunks = []
+    current_chunk = f"Saved Users in DB ({len(users)} total):\n"
+    for line in lines:
+        if len(current_chunk) + len(line) + 1 > 3500:
+            chunks.append(current_chunk.rstrip())
+            current_chunk = ""
+        current_chunk += f"{line}\n"
+    if current_chunk:
+        chunks.append(current_chunk.rstrip())
+
+    for chunk in chunks:
+        await message.reply_text(chunk)
+
+
 def main():
     validate_config()
     init_db()
@@ -700,6 +733,7 @@ def main():
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("cancel", cancel))
+    app.add_handler(CommandHandler("checkusers", check_db_users))
     app.add_handler(MessageHandler(filters.PHOTO, payment_proof_handler))
     app.add_handler(
         CallbackQueryHandler(
