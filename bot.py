@@ -695,32 +695,20 @@ async def check_db_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     with db_connect() as conn:
-        users = conn.execute(
-            "SELECT user_id, status, expiry_date FROM users ORDER BY user_id"
-        ).fetchall()
+        # Ab hum users ke sath-sath payments table bhi check karenge
+        users = conn.execute("SELECT user_id, status, expiry_date FROM users").fetchall()
+        payments = conn.execute("SELECT payment_id, user_id, status, amount_inr FROM payments").fetchall()
 
-    if not users:
-        await message.reply_text("Database me abhi koi user nahi hai!")
-        return
+    msg = f"📊 **DB Report:**\n\n👤 **Users ({len(users)}):**\n"
+    for u in users:
+        msg += f"ID: `{u[0]}` | Status: {u[1]}\n"
+        
+    msg += f"\n💳 **Payments ({len(payments)}):**\n"
+    for p in payments:
+        msg += f"PayID: `{p[0]}` | User: `{p[1]}` | Status: {p[2]} | Amt: ₹{p[3]}\n"
 
-    lines = [
-        f"ID: {user['user_id']} | Status: {user['status']} | Expiry: {user['expiry_date']}"
-        for user in users
-    ]
-    chunks = []
-    current_chunk = f"Saved Users in DB ({len(users)} total):\n"
-    for line in lines:
-        if len(current_chunk) + len(line) + 1 > 3500:
-            chunks.append(current_chunk.rstrip())
-            current_chunk = ""
-        current_chunk += f"{line}\n"
-    if current_chunk:
-        chunks.append(current_chunk.rstrip())
-
-    for chunk in chunks:
-        await message.reply_text(chunk)
-
-
+    await message.reply_text(msg, parse_mode="Markdown")
+    
 def main():
     validate_config()
     init_db()
@@ -730,7 +718,7 @@ def main():
         .token(TOKEN)
         .build()
     )
-    
+
     app.add_handler(CommandHandler("checkdb", check_db_users))
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("cancel", cancel))
